@@ -1,4 +1,4 @@
-module github/code-ready/goodhosts
+module github.com/code-ready/goodhosts
 
 require (
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
