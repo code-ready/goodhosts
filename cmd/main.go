@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/code-ready/goodhosts"
 	"github.com/docopt/docopt-go"
-	"github.com/lextoumbourou/goodhosts"
+	"net"
 	"os"
 )
 
@@ -19,8 +20,8 @@ func main() {
 Usage:
   goodhosts check <ip> <host>...
   goodhosts add <ip> <host>...
-  goodhosts (rm|remove) <ip> <host>...
   goodhosts list [--all]
+  goodhosts (rm|remove) <ip> | <host>...
   goodhosts -h | --help
   goodhosts --version
 
@@ -102,12 +103,16 @@ Options:
 		ip := args["<ip>"].(string)
 		hostEntries := args["<host>"].([]string)
 
+		arg := []string{}
+		arg = append(arg, ip)
+		arg = append(arg, hostEntries...)
+
 		if !hosts.IsWritable() {
 			fmt.Fprintln(os.Stderr, "Host file not writable. Try running with elevated privileges.")
 			os.Exit(1)
 		}
 
-		err = hosts.Remove(ip, hostEntries...)
+		err = remove(&hosts, arg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, fmt.Sprintf("%s\n", err.Error()))
 			os.Exit(2)
@@ -118,4 +123,59 @@ Options:
 
 		return
 	}
+}
+
+func remove(hosts *goodhosts.Hosts, arg []string) error {
+	if len(arg) == 0 {
+		return fmt.Errorf("Not enough arguments")
+	}
+
+	if len(arg) == 1 {
+		fmt.Println("Processing single arg")
+		processSingleArg(hosts, arg[0])
+	}
+
+	uniqueHosts := map[string]bool{}
+	var hostEntries []string
+
+	for i := 1; i < len(arg); i++ {
+		uniqueHosts[arg[i]] = true
+	}
+
+	for key, _ := range uniqueHosts {
+		hostEntries = append(hostEntries, key)
+	}
+
+	if net.ParseIP(arg[0]) != nil {
+		if hosts.HasIp(arg[0]) {
+			err := hosts.Remove(arg[0], hostEntries...)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		hostEntries = append(hostEntries, arg[0])
+		for _, value := range hostEntries {
+			err := hosts.RemoveByHostname(value)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func processSingleArg(host *goodhosts.Hosts, arg string) error {
+	if net.ParseIP(arg) != nil {
+		fmt.Println("Removing using IP")
+		if err := host.RemoveByIp(arg); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if err := host.RemoveByHostname(arg); err != nil {
+		return err
+	}
+	return nil
 }

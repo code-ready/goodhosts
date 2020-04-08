@@ -33,3 +33,12 @@ func buildRawLine(ip string, hosts []string) string {
 
 	return output
 }
+
+func removeFromSlice(s string, slice []string) []string {
+	for key, value := range slice {
+		if value == s {
+			return append(slice[:key], slice[key+1:]...)
+		}
+	}
+	return nil
+}

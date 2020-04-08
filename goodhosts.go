@@ -12,19 +12,11 @@ import (
 
 const commentChar string = "#"
 
-// Represents a single line in the hosts file.
 type HostsLine struct {
 	IP    string
 	Hosts []string
 	Raw   string
 	Err   error
-}
-
-// Return ```true``` if the line is a comment.
-func (l HostsLine) IsComment() bool {
-	trimLine := strings.TrimSpace(l.Raw)
-	isComment := strings.HasPrefix(trimLine, commentChar)
-	return isComment
 }
 
 // Return a new instance of ```HostsLine```.
@@ -48,10 +40,56 @@ func NewHostsLine(raw string) HostsLine {
 	return output
 }
 
-// Represents a hosts file.
+func (l *HostsLine) IsComment() bool {
+	return strings.HasPrefix(strings.TrimSpace(l.Raw), commentChar)
+}
+
+func (l *HostsLine) IsValid() bool {
+	if l.IP != "" {
+		return true
+	}
+	return false
+}
+
+func (l *HostsLine) IsMalformed() bool {
+	if l.Err != nil {
+		return true
+	}
+	return false
+}
+
+func (l *HostsLine) RegenRaw() {
+	l.Raw = fmt.Sprintf("%s %s", l.IP, strings.Join(l.Hosts, " "))
+}
+
+
 type Hosts struct {
 	Path  string
 	Lines []HostsLine
+}
+
+// Return a new instance of ``Hosts`` using the default hosts file path.
+func NewHosts() (Hosts, error) {
+	osHostsFilePath := os.ExpandEnv(filepath.FromSlash(hostsFilePath))
+
+	if env, isset := os.LookupEnv("HOSTS_PATH"); isset && len(env) > 0 {
+		osHostsFilePath = os.ExpandEnv(filepath.FromSlash(env))
+	}
+
+	return NewCustomHosts(osHostsFilePath)
+}
+
+// Return a new instance of ``Hosts`` using a custom hosts file path.
+func NewCustomHosts(osHostsFilePath string) (Hosts, error) {
+	hosts := Hosts{
+		Path: osHostsFilePath,
+	}
+
+	if err := hosts.Load(); err != nil {
+		return hosts, err
+	}
+
+	return hosts, nil
 }
 
 // Return ```true``` if hosts file is writable.
@@ -101,6 +139,8 @@ func (h Hosts) Flush() error {
 	if err != nil {
 		return err
 	}
+
+	defer file.Close()
 
 	w := bufio.NewWriter(file)
 
@@ -158,6 +198,12 @@ func (h Hosts) HasHostname(host string) bool {
 	return pos != -1
 }
 
+func (h Hosts) HasIp(ip string) bool {
+	pos := h.getIpPosition(ip)
+
+	return pos != -1
+}
+
 // Remove an entry from the hosts file.
 func (h *Hosts) Remove(ip string, hosts ...string) error {
 	var outputLines []HostsLine
@@ -201,9 +247,26 @@ func (h *Hosts) Remove(ip string, hosts ...string) error {
 func (h *Hosts) RemoveByHostname(host string) error {
 	pos := h.getHostnamePosition(host)
 	for pos > -1 {
-		h.removeByPosition(pos)
+		if len(h.Lines[pos].Hosts) > 1 {
+			h.Lines[pos].Hosts = removeFromSlice(host, h.Lines[pos].Hosts)
+			h.Lines[pos].RegenRaw()
+		} else {
+			fmt.Println("This should be running")
+			h.removeByPosition(pos)
+		}
 		pos = h.getHostnamePosition(host)
 	}
+
+	return nil
+}
+
+func (h *Hosts) RemoveByIp(ip string) error {
+	pos := h.getIpPosition(ip)
+	for pos > -1 {
+		h.removeByPosition(pos)
+		pos = h.getIpPosition(ip)
+	}
+
 	return nil
 }
 
@@ -229,7 +292,7 @@ func (h Hosts) getHostnamePosition(host string) int {
 	for i := range h.Lines {
 		line := h.Lines[i]
 		if !line.IsComment() && line.Raw != "" {
-			if sliceContainsItem(host, line.Hosts) {
+			if itemInSlice(host, line.Hosts) {
 				return i
 			}
 		}
@@ -249,24 +312,4 @@ func (h Hosts) getIpPosition(ip string) int {
 	}
 
 	return -1
-}
-
-// Return a new instance of ``Hosts``.
-func NewHosts() (Hosts, error) {
-	osHostsFilePath := ""
-
-	if os.Getenv("HOSTS_PATH") == "" {
-		osHostsFilePath = os.ExpandEnv(filepath.FromSlash(hostsFilePath))
-	} else {
-		osHostsFilePath = os.Getenv("HOSTS_PATH")
-	}
-
-	hosts := Hosts{Path: osHostsFilePath}
-
-	err := hosts.Load()
-	if err != nil {
-		return hosts, err
-	}
-
-	return hosts, nil
 }
